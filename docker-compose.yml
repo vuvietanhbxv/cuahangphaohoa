@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tincay360-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tincay
+      POSTGRES_PASSWORD: tincay_dev_password
+      POSTGRES_DB: tincay360
+    ports:
+      - "5432:5432"
+    volumes:
+      - tincay_pgdata:/var/lib/postgresql/data
+
+volumes:
+  tincay_pgdata:

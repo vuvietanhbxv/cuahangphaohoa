@@ -1,0 +1,232 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Theme system — 2 theme: Dark (mặc định, hợp pháo hoa) và Light
+   Dùng CSS custom properties để áp đồng bộ.
+   ============================================================ */
+
+/* Dark theme (mặc định cho cảm giác pháo hoa cao cấp) */
+:root {
+  --rgb-page-bg:      6 11 29;
+  --rgb-page-soft:    8 15 43;
+  --rgb-card-strong:  2 6 23;
+  --rgb-text-main:    255 255 255;
+  --rgb-text-muted:   148 163 184;
+  --rgb-text-soft:    203 213 225;
+  --rgb-primary:      251 191 36;
+  --rgb-primary-soft: 251 146 60;
+  --rgb-danger:       251 113 133;
+  --rgb-safe:         52 211 153;
+  --rgb-border:       40 48 72;
+  --rgb-card-bg:      14 20 48;
+}
+
+/* Light theme khi html có class .light */
+.light {
+  --rgb-page-bg:      248 250 252;
+  --rgb-page-soft:    255 255 255;
+  --rgb-card-strong:  248 250 252;
+  --rgb-text-main:    15 23 42;
+  --rgb-text-muted:   100 116 139;
+  --rgb-text-soft:    71 85 105;
+  --rgb-primary:      217 119 6;
+  --rgb-primary-soft: 245 158 11;
+  --rgb-danger:       225 29 72;
+  --rgb-safe:         5 150 105;
+  --rgb-border:       226 232 240;
+  --rgb-card-bg:      255 255 255;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+html, body {
+  background: rgb(var(--rgb-page-bg));
+  color: rgb(var(--rgb-text-main));
+}
+
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+button, a, select { cursor: pointer; }
+
+/* ============================================================
+   Helper classes — dùng thay cho hardcoded bg-[#...] / text-...
+   Hai variant tự đổi theo class .light trên <html>
+   ============================================================ */
+
+/* Glass card — backdrop blur trên dark, plain trên light */
+.theme-card {
+  border-radius: 28px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(255 255 255 / 0.06);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.3);
+}
+.light .theme-card {
+  border-color: rgb(226 232 240);
+  background: #ffffff;
+  backdrop-filter: none;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.06), 0 4px 12px rgb(15 23 42 / 0.04);
+}
+
+/* Stronger card variant — đậm hơn */
+.theme-card-strong {
+  border-radius: 16px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(2 6 23 / 0.7);
+}
+.light .theme-card-strong {
+  border-color: rgb(226 232 240);
+  background: rgb(248 250 252);
+}
+
+/* Page wrapper với gradient pháo hoa cho hero */
+.theme-page-bg {
+  background:
+    radial-gradient(circle at 15% 12%, rgba(251,191,36,0.2), transparent 24%),
+    radial-gradient(circle at 82% 18%, rgba(244,63,94,0.18), transparent 22%),
+    radial-gradient(circle at 55% 65%, rgba(124,58,237,0.22), transparent 30%),
+    linear-gradient(180deg, #060b1d 0%, #080f2b 45%, #050716 100%);
+}
+.light .theme-page-bg {
+  background:
+    radial-gradient(circle at 12% 18%, rgba(251,191,36,0.10), transparent 26%),
+    radial-gradient(circle at 88% 22%, rgba(244,63,94,0.06), transparent 24%),
+    radial-gradient(circle at 50% 80%, rgba(124,58,237,0.06), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 50%, #f1f5f9 100%);
+}
+
+/* Dot pattern decoration */
+.theme-dot-pattern {
+  background-image: radial-gradient(rgba(255,255,255,0.55) 1px, transparent 1px);
+  background-size: 38px 38px;
+  opacity: 0.3;
+}
+.light .theme-dot-pattern {
+  background-image: radial-gradient(rgba(15,23,42,0.18) 1px, transparent 1px);
+  opacity: 0.4;
+}
+
+/* Header bar */
+.theme-header {
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(6 11 29 / 0.85);
+  backdrop-filter: blur(16px);
+}
+.light .theme-header {
+  border-bottom-color: rgb(226 232 240);
+  background: rgb(255 255 255 / 0.9);
+  backdrop-filter: blur(12px);
+}
+
+/* Section panel */
+.theme-section {
+  background: rgb(8 15 43);
+  border-block: 1px solid rgb(255 255 255 / 0.1);
+}
+.light .theme-section {
+  background: rgb(255 255 255);
+  border-block-color: rgb(226 232 240);
+}
+
+/* Footer */
+.theme-footer {
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(4 8 23);
+}
+.light .theme-footer {
+  border-top-color: rgb(226 232 240);
+  background: rgb(248 250 252);
+}
+
+/* Form inputs */
+.theme-input {
+  border-radius: 16px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(2 6 23 / 0.8);
+  color: #ffffff;
+}
+.light .theme-input {
+  border-color: rgb(203 213 225);
+  background: #ffffff;
+  color: rgb(15 23 42);
+}
+.theme-input::placeholder { color: rgb(100 116 139); }
+.theme-input:focus {
+  outline: none;
+  border-color: rgb(var(--rgb-primary));
+  box-shadow: 0 0 0 4px rgb(var(--rgb-primary) / 0.1);
+}
+
+/* Border helper */
+.theme-border { border-color: rgb(255 255 255 / 0.1); }
+.light .theme-border { border-color: rgb(226 232 240); }
+
+/* Store card — rose accent, glass nền theo theme */
+.theme-store-card {
+  border-radius: 16px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  background: rgb(255 255 255 / 0.05);
+  color: rgb(var(--rgb-text-main));
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.theme-store-card:hover {
+  background: rgb(255 255 255 / 0.08);
+  border-color: rgb(244 63 94 / 0.4);
+  box-shadow: 0 4px 16px rgb(244 63 94 / 0.10);
+}
+.theme-store-card.active {
+  border-color: rgb(244,63,94);
+  background: rgb(244 63 94 / 0.08);
+  box-shadow: 0 4px 20px rgb(244 63 94 / 0.18);
+}
+.light .theme-store-card {
+  border-color: rgb(254 205 211);
+  background: #ffffff;
+}
+.light .theme-store-card:hover {
+  background: rgb(255 241 242);
+  box-shadow: 0 2px 8px rgb(244 63 94 / 0.08);
+}
+.light .theme-store-card.active {
+  border-color: rgb(244,63,94);
+  background: rgb(255 241 242);
+  box-shadow: 0 2px 12px rgb(251 113 133 / 0.18);
+}
+
+/* Store panel (map container, list container) */
+.theme-store-panel {
+  border-radius: 16px;
+  border: 2px solid rgb(244 63 94 / 0.5);
+  background: rgb(2 6 23 / 0.6);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.30);
+  backdrop-filter: blur(8px);
+}
+.light .theme-store-panel {
+  border-color: rgb(244,63,94);
+  background: #ffffff;
+  backdrop-filter: none;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.06);
+}
+
+/* Leaflet marker pulse */
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 6px 16px rgba(220,38,38,0.5), 0 0 0 0 rgba(220,38,38,0.6); }
+  50%      { box-shadow: 0 6px 16px rgba(220,38,38,0.5), 0 0 0 16px rgba(220,38,38,0); }
+}
+
+/* Leaflet container fix theme */
+.leaflet-container {
+  font-family: inherit;
+  border-radius: 0.75rem;
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 0.75rem;
+}

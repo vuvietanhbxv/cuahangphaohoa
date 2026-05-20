@@ -1,0 +1,468 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// === Quy ước ===
+// SQLite không hỗ trợ enum native. Các trường "kiểu enum" được lưu dưới dạng String
+// và validate ở route schema (JSON Schema). Tham chiếu giá trị hợp lệ:
+//
+//   Role          : USER | ADMIN
+//   ReportStatus  : PENDING | REVIEWING | VERIFIED | REJECTED | DUPLICATE | NEED_MORE_INFO
+//   Region        : BAC | TRUNG | NAM
+//   EntityType    : PHONE | BANK_ACCOUNT | SHOP_NAME | SOCIAL_LINK
+//   RiskLevel     : very_low | low | medium | high | very_high   (gán bởi service)
+//
+// `evidenceUrls` lưu JSON string vì SQLite không có array native.
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  phone        String?
+  role         String   @default("USER")                  // USER | MODERATOR | ADMIN | SUPER_ADMIN | PRICE_EDITOR | SELLER_MANAGER
+  trustScore   Int      @default(0)
+  isLocked     Boolean  @default(false)                   // chặn login khi true
+  lockReason   String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  sellersSubmitted Seller[]          @relation("seller_submitter")
+  reportsSubmitted FraudReport[]     @relation("report_submitter")
+  pricesSubmitted  PriceSubmission[] @relation("price_submitter")
+  reviews          SellerReview[]
+  lookupLogs       LookupLog[]
+  adminActions     AdminActivityLog[]
+}
+
+// Log mọi hành động admin (duyệt báo cáo, sửa giá, khóa user, ...).
+// Ghi tự động từ các route /admin/*.
+model AdminActivityLog {
+  id         Int      @id @default(autoincrement())
+  adminId    Int
+  action     String                                       // APPROVE_REPORT | REJECT_REPORT | UPDATE_PRICE | LOCK_USER | ...
+  targetType String                                       // FraudReport | Seller | PriceSubmission | User | Product
+  targetId   Int?
+  oldValue   String?                                      // JSON string nếu cần
+  newValue   String?                                      // JSON string
+  note       String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  admin User @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+// Một entity được tra cứu: số điện thoại / số tài khoản / tên shop / link mạng xã hội.
+// Đây là bảng canonical để liên kết Report ↔ Seller ↔ Report khác.
+model LookupEntity {
+  id              Int      @id @default(autoincrement())
+  type            String                                // PHONE | BANK_ACCOUNT | SHOP_NAME | SOCIAL_LINK
+  rawValue        String                                // Giá trị user nhập lần đầu (giữ để hiển thị)
+  normalizedValue String                                // Giá trị đã chuẩn hoá (dùng để khớp)
+  displayValue    String                                // Giá trị đẹp để hiển thị (format)
+  bankName        String?                               // Áp dụng khi type=BANK_ACCOUNT
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  reports               FraudReport[] @relation("report_entity")
+  relatedReports        FraudReport[] @relation("report_related_account")
+  sellersByPhone        Seller[]      @relation("seller_phone")
+  sellersByAccount      Seller[]      @relation("seller_account")
+  lookupLogs            LookupLog[]
+
+  @@unique([type, normalizedValue])
+  @@index([type])
+  @@index([normalizedValue])
+}
+
+model Seller {
+  id           Int      @id @default(autoincrement())
+  name         String
+  phone        String                                   // Lưu raw để hiển thị
+  phoneEntityId Int?                                    // Liên kết với LookupEntity (PHONE)
+  bankAccount  String?
+  accountEntityId Int?                                  // Liên kết với LookupEntity (BANK_ACCOUNT)
+  bankName     String?
+  location     String
+  description  String?
+  thumbnailUrl String?
+  // ---- Branding (CMS module Giao diện website) ----
+  coverUrl       String?                                // Ảnh bìa desktop
+  mobileCoverUrl String?                                // Ảnh bìa mobile
+  brandColor     String?                                // hex color
+  slogan         String?
+  featuredImageUrl String?
+  brandingStatus String   @default("PENDING")           // PENDING | APPROVED | REJECTED | DISABLED
+  brandingRejectReason String?
+  brandingApprovedById Int?
+  // ---------------------------------------------------
+  ratingAvg    Float    @default(0)
+  ordersCount  Int      @default(0)
+  status       String   @default("PENDING")             // PENDING | APPROVED | REJECTED
+  rejectReason String?
+  createdAt    DateTime @default(now())
+
+  submittedById Int
+  submittedBy   User @relation("seller_submitter", fields: [submittedById], references: [id])
+  approvedById  Int?
+
+  phoneEntity   LookupEntity? @relation("seller_phone",   fields: [phoneEntityId],   references: [id])
+  accountEntity LookupEntity? @relation("seller_account", fields: [accountEntityId], references: [id])
+
+  reviews SellerReview[]
+
+  @@index([phoneEntityId])
+  @@index([accountEntityId])
+  @@index([status])
+}
+
+model SellerReview {
+  id        Int      @id @default(autoincrement())
+  sellerId  Int
+  userId    Int
+  rating    Int
+  comment   String?
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+
+  seller Seller @relation(fields: [sellerId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([sellerId])
+  @@index([status])
+}
+
+model FraudReport {
+  id            Int      @id @default(autoincrement())
+  entityId      Int                                     // FK → LookupEntity (đối tượng bị báo cáo)
+  reasonCode    String                                  // Mã từ REASON_CODES
+  reasonText    String?                                 // Mô tả ngắn
+  detail        String?                                 // Mô tả sự việc dài hơn (≥30 ký tự)
+  amount        Int?                                    // Số tiền bị thiệt hại (VND), nullable
+  transactionDate DateTime?                             // Ngày giao dịch
+  paymentMethod String?                                 // deposit | full_payment | cod | other
+  contactChannel String?                                // zalo | facebook | shopee | ...
+  productName   String?                                 // Sản phẩm liên quan
+  sellerName    String?                                 // Tên cá nhân người bán
+  sellerShopName String?                                // Tên shop
+  bankOwnerName String?                                 // Tên chủ tài khoản
+  socialLink    String?                                 // Link Facebook/Zalo/Shopee
+  region        String?                                 // BAC | TRUNG | NAM
+  reporterIp    String?
+  reporterUA    String?
+  relatedAccountEntityId Int?                           // Nếu báo cáo phone mà có liên quan tài khoản, ngược lại
+  evidenceUrls  String   @default("[]")                 // JSON array of URLs
+  riskLevelInput String  @default("medium")             // User-suggested level (auto-confirmed sau verify)
+  status        String   @default("PENDING")            // PENDING|REVIEWING|VERIFIED|REJECTED|DUPLICATE|NEED_MORE_INFO|DRAFT|REMOVED
+  rejectReason  String?
+  adminNote     String?
+  duplicateOfId Int?                                    // Nếu bị admin gộp duplicate
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  submittedById Int
+  submittedBy   User @relation("report_submitter", fields: [submittedById], references: [id])
+  approvedById  Int?
+
+  entity              LookupEntity  @relation("report_entity", fields: [entityId], references: [id])
+  relatedAccountEntity LookupEntity? @relation("report_related_account", fields: [relatedAccountEntityId], references: [id])
+  duplicateOf         FraudReport?  @relation("report_duplicate", fields: [duplicateOfId], references: [id])
+  statusLogs          ReportStatusLog[]
+  duplicates          FraudReport[] @relation("report_duplicate")
+
+  @@index([entityId])
+  @@index([status])
+  @@index([reasonCode])
+  @@index([submittedById, entityId])                    // Chống cùng user báo cáo cùng entity 2 lần
+}
+
+// Lịch sử thay đổi status của FraudReport. Mỗi PATCH /admin/reports/:id
+// hoặc người dùng bổ sung thông tin đều ghi 1 entry vào đây.
+model ReportStatusLog {
+  id           Int      @id @default(autoincrement())
+  reportId     Int
+  changedById  Int?                                       // null nếu hệ thống tự đổi
+  oldStatus    String?
+  newStatus    String
+  action       String                                     // SUBMIT | ADMIN_PATCH | ADD_INFO | DUPLICATE_MERGE
+  note         String?
+  createdAt    DateTime @default(now())
+
+  report     FraudReport @relation(fields: [reportId], references: [id])
+
+  @@index([reportId])
+  @@index([changedById])
+}
+
+model LookupLog {
+  id              Int      @id @default(autoincrement())
+  userId          Int?
+  ipAddress       String?
+  lookupType      String                                // PHONE | BANK_ACCOUNT
+  queryRaw        String
+  queryNormalized String
+  resultStatus    String                                // status từ riskScore
+  resultRiskScore Int?
+  entityId        Int?
+  createdAt       DateTime @default(now())
+
+  user   User?         @relation(fields: [userId], references: [id])
+  entity LookupEntity? @relation(fields: [entityId], references: [id])
+
+  @@index([lookupType, queryNormalized])
+  @@index([createdAt])
+}
+
+model Product {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  slug        String  @unique
+  description String?
+  imageUrl    String?
+
+  prices      PriceSubmission[]
+  dailyPrices DailyPrice[]
+  storeProducts StoreProduct[]
+}
+
+model PriceSubmission {
+  id            Int      @id @default(autoincrement())
+  productId     Int
+  region        String
+  price         Int
+  storeName     String
+  storeUrl      String?
+  priceDate     DateTime
+  status        String   @default("PENDING")
+  rejectReason  String?
+  createdAt     DateTime @default(now())
+
+  submittedById Int
+  submittedBy   User @relation("price_submitter", fields: [submittedById], references: [id])
+  approvedById  Int?
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([productId, region, priceDate])
+  @@index([status])
+}
+
+model DailyPrice {
+  id         Int      @id @default(autoincrement())
+  productId  Int
+  region     String
+  date       DateTime
+  avg        Int
+  low        Int
+  high       Int
+  storeCount Int
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([productId, region, date])
+  @@index([productId, region, date])
+}
+
+// ============================================================
+// STORES — Module "Hệ thống cửa hàng" (giống Z121 nâng cấp)
+// ============================================================
+
+// Cửa hàng (entity public, có URL slug riêng).
+// Khác Seller (do user đăng ký, chờ duyệt): Store do admin thêm/import,
+// có thể có nhiều chi nhánh, có giấy phép kinh doanh, tích hợp tra cứu.
+model Store {
+  id                     Int      @id @default(autoincrement())
+  name                   String
+  slug                   String   @unique
+  description            String?
+  avatarUrl              String?
+  coverUrl               String?
+  phone                  String?                        // SĐT chính (full)
+  phoneNormalized        String?                        // chỉ số để lookup
+  email                  String?
+  website                String?
+  facebookUrl            String?
+  zaloUrl                String?
+  bankAccount            String?
+  bankAccountNormalized  String?
+  bankName               String?
+  bankOwnerName          String?
+  openingHours           String?                        // "08:00-22:00 hàng ngày"
+  brandColor             String?
+  status                 String   @default("ACTIVE")    // ACTIVE | HIDDEN | SUSPENDED
+  verificationStatus     String   @default("PENDING")   // PENDING | VERIFIED | REJECTED | UNDER_REVIEW
+  rejectReason           String?
+  trustScore             Int      @default(50)          // 0-100
+  rating                 Float    @default(0)
+  reviewCount            Int      @default(0)
+  successfulTransactions Int      @default(0)
+  warningCount           Int      @default(0)           // số cảnh báo liên quan
+  hasPriceToday          Boolean  @default(false)
+  ownerUserId            Int?                           // user đang quản lý shop (nullable nếu do admin tạo)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  locations      StoreLocation[]
+  storeProducts  StoreProduct[]
+  reviews        StoreReview[]
+  verifications  StoreVerification[]
+
+  @@index([verificationStatus])
+  @@index([status])
+  @@index([phoneNormalized])
+  @@index([bankAccountNormalized])
+}
+
+// 1 cửa hàng có thể có nhiều chi nhánh. Lưu region/province/district/ward + tọa độ.
+model StoreLocation {
+  id            Int      @id @default(autoincrement())
+  storeId       Int
+  branchName    String?                              // "Chi nhánh Cầu Giấy"
+  region        String                               // BAC | TRUNG | NAM
+  province      String                               // "Hà Nội"
+  provinceSlug  String                               // "ha-noi"
+  district      String?                              // "Cầu Giấy"
+  districtSlug  String?
+  ward          String?
+  address       String                               // địa chỉ chi tiết
+  latitude      Float?
+  longitude     Float?
+  phone         String?                              // SĐT chi nhánh (nếu khác store chính)
+  openingHours  String?
+  isMainBranch  Boolean  @default(false)
+  status        String   @default("ACTIVE")          // ACTIVE | CLOSED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([region, provinceSlug])
+  @@index([provinceSlug, districtSlug])
+}
+
+// Cửa hàng nào bán sản phẩm gì.
+model StoreProduct {
+  id          Int      @id @default(autoincrement())
+  storeId     Int
+  productId   Int
+  price       Int?
+  stockStatus String   @default("unknown")           // available | out_of_stock | pre_order | unknown
+  updatedAt   DateTime @updatedAt
+
+  store   Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([storeId, productId])
+  @@index([productId])
+}
+
+// Hồ sơ xác minh — giấy phép kinh doanh, CCCD chủ shop, ảnh cửa hàng...
+model StoreVerification {
+  id               Int      @id @default(autoincrement())
+  storeId          Int
+  verificationType String                              // business_license | identity | bank_account | phone_owner | store_photo | address_proof
+  fileUrl          String?
+  note             String?
+  status           String   @default("PENDING")        // PENDING | APPROVED | REJECTED
+  reviewedById     Int?
+  reviewedAt       DateTime?
+  createdAt        DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([status])
+}
+
+// Đánh giá cửa hàng từ user (sau giao dịch).
+model StoreReview {
+  id                Int      @id @default(autoincrement())
+  storeId           Int
+  userId            Int
+  rating            Int                                 // 1..5
+  content           String?
+  transactionStatus String?                             // "successful" | "had_issue" | "scam"
+  evidenceUrl       String?
+  status            String   @default("PENDING")        // PENDING | APPROVED | REJECTED | HIDDEN
+  createdAt         DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================================
+// CMS / Site appearance — Module "Giao diện website"
+// ============================================================
+
+// Key-value cho cài đặt thương hiệu (siteName, slogan, primaryColor, ...).
+// `value` là JSON string để chứa được string / number / object / array.
+model SiteSetting {
+  key         String   @id                              // ví dụ: site_name, primary_color, hero_title
+  value       String                                    // JSON-encoded
+  type        String   @default("string")               // string | color | image | json | bool
+  group       String   @default("general")              // general | brand | hero | footer
+  description String?
+  updatedById Int?
+  updatedAt   DateTime @updatedAt
+
+  @@index([group])
+}
+
+// Banner trang chủ / trang con. Có lịch chạy + multiple position.
+model Banner {
+  id                Int       @id @default(autoincrement())
+  title             String
+  subtitle          String?
+  description       String?
+  desktopImageUrl   String?
+  mobileImageUrl    String?
+  ctaPrimaryLabel   String?
+  ctaPrimaryUrl     String?
+  ctaSecondaryLabel String?
+  ctaSecondaryUrl   String?
+  position          String   @default("home_hero")     // home_hero | home_middle | price_page | seller_page | report_page
+  status            String   @default("draft")          // draft | active | scheduled | expired | disabled
+  startAt           DateTime?
+  endAt             DateTime?
+  sortOrder         Int      @default(0)
+  createdById       Int?
+  updatedById       Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([position, status])
+  @@index([sortOrder])
+}
+
+// Mọi file đã upload qua /uploads được track ở đây.
+model MediaAsset {
+  id           Int      @id @default(autoincrement())
+  fileUrl      String   @unique
+  fileName     String?
+  mimeType     String?
+  fileSize     Int?
+  width        Int?
+  height       Int?
+  usageType    String   @default("public_media")        // logo | banner | seller_avatar | seller_cover | product_image | report_evidence | public_media | private_evidence
+  visibility   String   @default("public")              // public | admin_only | seller_only | private
+  uploadedById Int?
+  reportId     Int?                                     // backref nếu là evidence của 1 report
+  createdAt    DateTime @default(now())
+
+  @@index([usageType])
+  @@index([uploadedById])
+}
