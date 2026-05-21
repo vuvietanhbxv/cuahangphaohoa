@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "app.js",
   "description": "TinCay360 — cuahangphaohoa.shop",
   "scripts": {
     "postinstall": "node scripts/postinstall.mjs",
-    "start": "cd backend && node src/server.js",
+    "start": "node app.js",
     "dev": "cd backend && node --watch src/server.js",
     "build": "cd frontend && npm install && npm run build"
   },
