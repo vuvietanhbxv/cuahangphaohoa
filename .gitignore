@@ -1,9 +1,8 @@
 # Dependencies
 node_modules/
 
-# Build output
-dist/
-frontend/dist/
+# Build output (frontend/dist/ is committed for single-server deploy)
+# frontend/dist/
 
 # Environment files (chứa secrets)
 .env
