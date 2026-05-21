@@ -447,6 +447,14 @@ async function main() {
         bankOwnerName: s.bankOwnerName,
         brandColor: s.brandColor || null,
         openingHours: s.openingHours,
+        // Seller type
+        sellerType: "official_store",
+        source: "admin_created",
+        isOfficial: true,
+        baseTrustScore: 80,
+        riskScore: 0,
+        riskStatus: "normal",
+        // Status
         verificationStatus: s.verificationStatus,
         trustScore: s.trustScore || 50,
         rating: s.rating || 0,

@@ -67,7 +67,8 @@ app.decorate("authenticate", async (request, reply) => {
 app.decorate("requireAdmin", async (request, reply) => {
   try {
     await request.jwtVerify();
-    if (request.user?.role !== "ADMIN") {
+    const adminRoles = ["ADMIN", "SUPER_ADMIN", "SELLER_MANAGER"];
+    if (!adminRoles.includes(request.user?.role)) {
       return reply.code(403).send({ error: "Forbidden" });
     }
   } catch {

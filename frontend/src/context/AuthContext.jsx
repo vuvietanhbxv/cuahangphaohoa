@@ -42,13 +42,20 @@ export function AuthProvider({ children }) {
     return data.user;
   }, []);
 
+  const changePassword = useCallback(async (currentPassword, newPassword) => {
+    const data = await api.post("/auth/change-password", { currentPassword, newPassword }, { auth: true });
+    setToken(data.token);
+    setUser(data.user);
+    return data;
+  }, []);
+
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refresh, changePassword }}>
       {children}
     </AuthContext.Provider>
   );
