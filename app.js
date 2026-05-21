@@ -1,18 +1,17 @@
 /**
- * app.js — Entry point cho Plesk Node.js hosting
+ * app.js — Entry point cho Plesk / Phusion Passenger
  *
- * Plesk tìm file này ở root (httpdocs/app.js).
- * Chuyển cwd sang backend/ rồi load server thực tế.
+ * File này dùng CommonJS (không phải ESM) để tương thích với Passenger.
+ * Backend code vẫn là ESM (backend/package.json có "type": "module").
  */
 
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+const path = require("path");
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// chdir to backend/ để dotenv, prisma, uploads resolve đúng thư mục
+process.chdir(path.resolve(__dirname, "backend"));
 
-// chdir to backend/ để process.cwd() trỏ đúng thư mục
-// (uploads, .env, prisma đều cần chạy từ backend/)
-process.chdir(resolve(__dirname, "backend"));
-
-// Load server thực tế
-await import("./backend/src/server.js");
+// Dynamic import() để load ESM server module
+import("./backend/src/server.js").catch((err) => {
+  console.error("Server failed to start:", err);
+  process.exit(1);
+});

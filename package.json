@@ -2,7 +2,6 @@
   "name": "cuahangphaohoa",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
   "main": "app.js",
   "description": "TinCay360 — cuahangphaohoa.shop",
   "scripts": {
