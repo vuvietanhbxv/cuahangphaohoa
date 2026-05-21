@@ -2,8 +2,21 @@
 
 import { logAdminAction } from "../services/adminLog.service.js";
 import { VN_PROVINCES, provinceSlug } from "../lib/locations.js";
+import { hashPassword } from "../lib/hash.js";
+import crypto from "node:crypto";
 
 const digits = (s) => String(s || "").replace(/\D/g, "");
+
+/** Sinh mật khẩu ngẫu nhiên dễ đọc, 10 ký tự */
+function generateRandomPassword(length = 10) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  let result = "";
+  const bytes = crypto.randomBytes(length);
+  for (let i = 0; i < length; i++) {
+    result += chars[bytes[i] % chars.length];
+  }
+  return result;
+}
 
 const storeBodySchema = {
   body: {
@@ -56,17 +69,188 @@ const locationBodySchema = {
   },
 };
 
+const officialStoreSchema = {
+  body: {
+    type: "object",
+    required: ["name", "slug", "ownerEmail", "ownerDisplayName"],
+    properties: {
+      name:             { type: "string", minLength: 1, maxLength: 200 },
+      slug:             { type: "string", minLength: 1, maxLength: 200, pattern: "^[a-z0-9-]+$" },
+      description:      { type: "string", maxLength: 2000 },
+      phone:            { type: "string", maxLength: 30 },
+      email:            { type: "string", maxLength: 200 },
+      website:          { type: "string", maxLength: 500 },
+      facebookUrl:      { type: "string", maxLength: 500 },
+      zaloUrl:          { type: "string", maxLength: 500 },
+      bankAccount:      { type: "string", maxLength: 40 },
+      bankName:         { type: "string", maxLength: 100 },
+      bankOwnerName:    { type: "string", maxLength: 200 },
+      brandColor:       { type: "string", maxLength: 20 },
+      openingHours:     { type: "string", maxLength: 200 },
+      // Owner account info
+      ownerEmail:       { type: "string", format: "email", maxLength: 200 },
+      ownerDisplayName: { type: "string", minLength: 1, maxLength: 100 },
+      ownerPhone:       { type: "string", maxLength: 30 },
+    },
+  },
+};
+
 export default async function adminStoresRoutes(app) {
   app.addHook("preHandler", app.requireAdmin);
+
+  // ============================================================
+  // Tạo cửa hàng chính hãng (official_store)
+  // Auto-tạo user account + random password
+  // ============================================================
+  app.post("/stores/official", { schema: officialStoreSchema }, async (request, reply) => {
+    const { ownerEmail, ownerDisplayName, ownerPhone, ...storeData } = request.body;
+
+    // Kiểm tra email đã tồn tại chưa
+    const existingUser = await app.prisma.user.findUnique({ where: { email: ownerEmail } });
+    if (existingUser) {
+      return reply.code(409).send({ error: `Email "${ownerEmail}" đã được sử dụng. Hãy dùng email khác.` });
+    }
+
+    // Kiểm tra slug đã tồn tại chưa
+    const existingStore = await app.prisma.store.findUnique({ where: { slug: storeData.slug } });
+    if (existingStore) {
+      return reply.code(409).send({ error: `Slug "${storeData.slug}" đã tồn tại. Hãy chọn slug khác.` });
+    }
+
+    // 1. Sinh mật khẩu ngẫu nhiên
+    const rawPassword = generateRandomPassword(10);
+    const passwordHash = await hashPassword(rawPassword);
+
+    // 2. Tạo user + store trong transaction
+    const result = await app.prisma.$transaction(async (tx) => {
+      // Tạo user account
+      const user = await tx.user.create({
+        data: {
+          email: ownerEmail,
+          passwordHash,
+          displayName: ownerDisplayName,
+          phone: ownerPhone || storeData.phone || null,
+          role: "OFFICIAL_STORE_OWNER",
+          mustChangePassword: true,
+          createdByAdminId: request.user.id,
+        },
+      });
+
+      // Tạo store
+      const store = await tx.store.create({
+        data: {
+          name: storeData.name,
+          slug: storeData.slug,
+          description: storeData.description || null,
+          phone: storeData.phone || null,
+          phoneNormalized: digits(storeData.phone),
+          email: storeData.email || ownerEmail,
+          website: storeData.website || null,
+          facebookUrl: storeData.facebookUrl || null,
+          zaloUrl: storeData.zaloUrl || null,
+          bankAccount: storeData.bankAccount || null,
+          bankAccountNormalized: digits(storeData.bankAccount),
+          bankName: storeData.bankName || null,
+          bankOwnerName: storeData.bankOwnerName || null,
+          brandColor: storeData.brandColor || null,
+          openingHours: storeData.openingHours || null,
+          // Seller type fields
+          sellerType: "official_store",
+          source: "admin_created",
+          isOfficial: true,
+          // Trust
+          baseTrustScore: 80,
+          trustScore: 80,
+          riskScore: 0,
+          riskStatus: "normal",
+          // Status
+          status: "ACTIVE",
+          verificationStatus: "VERIFIED",
+          // Ownership
+          ownerUserId: user.id,
+          createdByAdminId: request.user.id,
+        },
+      });
+
+      return { user, store };
+    });
+
+    // 3. Log admin action
+    await logAdminAction(app.prisma, {
+      adminId: request.user.id,
+      action: "CREATE_OFFICIAL_STORE",
+      targetType: "Store",
+      targetId: result.store.id,
+      newValue: {
+        storeName: result.store.name,
+        storeSlug: result.store.slug,
+        ownerEmail,
+        ownerUserId: result.user.id,
+      },
+      ipAddress: request.ip,
+    });
+
+    // 4. Trả kết quả kèm mật khẩu (chỉ hiển thị 1 lần này)
+    return reply.code(201).send({
+      store: result.store,
+      account: {
+        userId: result.user.id,
+        email: result.user.email,
+        displayName: result.user.displayName,
+        password: rawPassword,        // ← CHỈ TRẢ 1 LẦN, admin chép gửi cho chủ cửa hàng
+        role: result.user.role,
+        mustChangePassword: true,
+      },
+    });
+  });
+
+  // ============================================================
+  // Reset mật khẩu cho store owner
+  // ============================================================
+  app.post("/stores/:id/reset-password", async (request, reply) => {
+    const storeId = Number(request.params.id);
+    const store = await app.prisma.store.findUnique({ where: { id: storeId } });
+    if (!store) return reply.code(404).send({ error: "Không tìm thấy cửa hàng" });
+    if (!store.ownerUserId) return reply.code(400).send({ error: "Cửa hàng chưa có tài khoản chủ sở hữu" });
+
+    const rawPassword = generateRandomPassword(10);
+    const passwordHash = await hashPassword(rawPassword);
+
+    const user = await app.prisma.user.update({
+      where: { id: store.ownerUserId },
+      data: { passwordHash, mustChangePassword: true },
+    });
+
+    await logAdminAction(app.prisma, {
+      adminId: request.user.id,
+      action: "RESET_STORE_OWNER_PASSWORD",
+      targetType: "Store",
+      targetId: storeId,
+      newValue: { ownerUserId: user.id, ownerEmail: user.email },
+      ipAddress: request.ip,
+    });
+
+    return {
+      storeId,
+      account: {
+        userId: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        password: rawPassword,          // ← CHỈ TRẢ 1 LẦN
+        mustChangePassword: true,
+      },
+    };
+  });
 
   // ============================================================
   // Stores list
   // ============================================================
   app.get("/stores", async (request) => {
-    const { region, province, verification_status, status, search, limit = 200 } = request.query;
+    const { region, province, verification_status, status, seller_type, search, limit = 200 } = request.query;
     const where = {};
     if (status) where.status = status;
     if (verification_status) where.verificationStatus = verification_status;
+    if (seller_type) where.sellerType = seller_type;
     if (search) {
       where.OR = [
         { name: { contains: search } },
@@ -86,6 +270,7 @@ export default async function adminStoresRoutes(app) {
       orderBy: { createdAt: "desc" },
       include: {
         locations: { take: 3, orderBy: [{ isMainBranch: "desc" }] },
+        owner: { select: { id: true, email: true, displayName: true } },
         _count: { select: { locations: true, storeProducts: true } },
       },
       take: Math.min(Number(limit), 500),
@@ -101,6 +286,7 @@ export default async function adminStoresRoutes(app) {
         locations: { orderBy: [{ isMainBranch: "desc" }] },
         storeProducts: { include: { product: true } },
         verifications: { orderBy: { createdAt: "desc" } },
+        owner: { select: { id: true, email: true, displayName: true, role: true, mustChangePassword: true, isLocked: true, lastLoginAt: true } },
       },
     });
     if (!store) return reply.code(404).send({ error: "Không tìm thấy" });

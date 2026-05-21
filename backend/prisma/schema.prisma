@@ -20,17 +20,19 @@ datasource db {
 // `evidenceUrls` lưu JSON string vì SQLite không có array native.
 
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
-  passwordHash String
-  displayName  String
-  phone        String?
-  role         String   @default("USER")                  // USER | MODERATOR | ADMIN | SUPER_ADMIN | PRICE_EDITOR | SELLER_MANAGER
-  trustScore   Int      @default(0)
-  isLocked     Boolean  @default(false)                   // chặn login khi true
-  lockReason   String?
-  lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
+  id                 Int      @id @default(autoincrement())
+  email              String   @unique
+  passwordHash       String
+  displayName        String
+  phone              String?
+  role               String   @default("USER")            // USER | SELLER | OFFICIAL_STORE_OWNER | MODERATOR | ADMIN | SUPER_ADMIN | PRICE_EDITOR | SELLER_MANAGER
+  trustScore         Int      @default(0)
+  isLocked           Boolean  @default(false)             // chặn login khi true
+  lockReason         String?
+  mustChangePassword Boolean  @default(false)             // true khi admin tạo account, user phải đổi pass lần đầu
+  createdByAdminId   Int?                                 // null nếu tự đăng ký, adminId nếu admin tạo
+  lastLoginAt        DateTime?
+  createdAt          DateTime @default(now())
 
   sellersSubmitted Seller[]          @relation("seller_submitter")
   reportsSubmitted FraudReport[]     @relation("report_submitter")
@@ -38,6 +40,7 @@ model User {
   reviews          SellerReview[]
   lookupLogs       LookupLog[]
   adminActions     AdminActivityLog[]
+  ownedStores      Store[]           @relation("store_owner")
 }
 
 // Log mọi hành động admin (duyệt báo cáo, sửa giá, khóa user, ...).
@@ -274,12 +277,13 @@ model DailyPrice {
 }
 
 // ============================================================
-// STORES — Module "Hệ thống cửa hàng" (giống Z121 nâng cấp)
+// STORES — Module "Hệ thống cửa hàng"
 // ============================================================
+// 2 loại seller:
+//   official_store      = Cửa hàng chính hãng / Đại lý (admin tạo, tự tạo user account)
+//   independent_seller  = Người bán tự do (tự đăng ký)
+// Public chỉ hiển thị official_store. Independent_seller có profile riêng.
 
-// Cửa hàng (entity public, có URL slug riêng).
-// Khác Seller (do user đăng ký, chờ duyệt): Store do admin thêm/import,
-// có thể có nhiều chi nhánh, có giấy phép kinh doanh, tích hợp tra cứu.
 model Store {
   id                     Int      @id @default(autoincrement())
   name                   String
@@ -299,28 +303,50 @@ model Store {
   bankOwnerName          String?
   openingHours           String?                        // "08:00-22:00 hàng ngày"
   brandColor             String?
-  status                 String   @default("ACTIVE")    // ACTIVE | HIDDEN | SUSPENDED
-  verificationStatus     String   @default("PENDING")   // PENDING | VERIFIED | REJECTED | UNDER_REVIEW
+
+  // --- Seller type & source ---
+  sellerType             String   @default("official_store")   // official_store | independent_seller
+  source                 String   @default("admin_created")    // admin_created | self_registered
+  isOfficial             Boolean  @default(true)               // true = Cửa hàng chính hãng
+
+  // --- Status ---
+  status                 String   @default("ACTIVE")           // ACTIVE | HIDDEN | SUSPENDED
+  verificationStatus     String   @default("PENDING")          // PENDING | VERIFIED | REJECTED | UNDER_REVIEW
   rejectReason           String?
-  trustScore             Int      @default(50)          // 0-100
+
+  // --- Trust & Risk ---
+  baseTrustScore         Int      @default(80)                 // official=80, independent=40
+  riskScore              Int      @default(0)                  // tính từ cảnh báo, reports
+  trustScore             Int      @default(80)                 // = baseTrustScore - riskScore + reviewScore
+  riskStatus             String   @default("normal")           // normal | under_review | warning | high_risk
+
+  // --- Ratings & Stats ---
   rating                 Float    @default(0)
   reviewCount            Int      @default(0)
   successfulTransactions Int      @default(0)
-  warningCount           Int      @default(0)           // số cảnh báo liên quan
+  warningCount           Int      @default(0)                  // số cảnh báo liên quan
   hasPriceToday          Boolean  @default(false)
-  ownerUserId            Int?                           // user đang quản lý shop (nullable nếu do admin tạo)
+
+  // --- Ownership ---
+  ownerUserId            Int?                                  // user account sở hữu cửa hàng
+  createdByAdminId       Int?                                  // admin đã tạo (null nếu self_registered)
+
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
+  owner          User?             @relation("store_owner", fields: [ownerUserId], references: [id])
   locations      StoreLocation[]
   storeProducts  StoreProduct[]
   reviews        StoreReview[]
   verifications  StoreVerification[]
 
+  @@index([sellerType])
   @@index([verificationStatus])
   @@index([status])
+  @@index([riskStatus])
   @@index([phoneNormalized])
   @@index([bankAccountNormalized])
+  @@index([ownerUserId])
 }
 
 // 1 cửa hàng có thể có nhiều chi nhánh. Lưu region/province/district/ward + tọa độ.

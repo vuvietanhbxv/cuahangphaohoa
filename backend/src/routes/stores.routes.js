@@ -9,6 +9,8 @@ function maskedStore(s, includeFull = false) {
     name: s.name,
     slug: s.slug,
     description: s.description,
+    seller_type: s.sellerType,
+    is_official: s.isOfficial,
     avatar_url: s.avatarUrl,
     cover_url: s.coverUrl,
     brand_color: s.brandColor,
@@ -98,7 +100,7 @@ export default async function storesRoutes(app) {
     const { region, province, district, verified, product, search, page = 1, limit = 24 } = request.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    const where = { status: "ACTIVE" };
+    const where = { status: "ACTIVE", sellerType: "official_store" };
     if (verified === "true") where.verificationStatus = "VERIFIED";
     if (search) {
       where.OR = [
@@ -168,7 +170,7 @@ export default async function storesRoutes(app) {
         _count: { select: { reviews: { where: { status: "APPROVED" } } } },
       },
     });
-    if (!store || store.status !== "ACTIVE") {
+    if (!store || store.status !== "ACTIVE" || store.sellerType !== "official_store") {
       return reply.code(404).send({ error: "Không tìm thấy cửa hàng" });
     }
 
@@ -218,6 +220,7 @@ export default async function storesRoutes(app) {
     const stores = await app.prisma.store.findMany({
       where: {
         status: "ACTIVE",
+        sellerType: "official_store",
         locations: { some: { latitude: { not: null }, longitude: { not: null } } },
       },
       include: { locations: { where: { latitude: { not: null } } } },

@@ -32,6 +32,7 @@ import MyReportsPage from "./pages/MyReportsPage.jsx";
 import MyReportDetailPage from "./pages/MyReportDetailPage.jsx";
 import StoresPage from "./pages/StoresPage.jsx";
 import StoreDetailPage from "./pages/StoreDetailPage.jsx";
+import ChangePasswordPage from "./pages/ChangePasswordPage.jsx";
 import AdminStoresPage from "./pages/admin/AdminStoresPage.jsx";
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage.jsx";
 import AdminReportsPage from "./pages/admin/AdminReportsPage.jsx";
@@ -62,6 +63,10 @@ export default function App() {
             <Route path="he-thong-cua-hang/:slug" element={<StoreDetailPage />} />
             <Route path="login" element={<LoginPage />} />
             <Route path="register" element={<RegisterPage />} />
+            <Route
+              path="change-password"
+              element={<RequireAuth><ChangePasswordPage /></RequireAuth>}
+            />
             <Route
               path="submit/report"
               element={<RequireAuth><SubmitReportPage /></RequireAuth>}
