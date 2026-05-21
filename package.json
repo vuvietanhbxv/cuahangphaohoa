@@ -1,0 +1,19 @@
+{
+  "name": "cuahangphaohoa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TinCậy360 — An tâm giao dịch pháo hoa (cuahangphaohoa.shop)",
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "postinstall": "npm run install:all",
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && node src/server.js",
+    "dev": "cd backend && npm run dev",
+    "seed": "cd backend && npm run seed",
+    "migrate": "cd backend && npx prisma migrate deploy",
+    "setup": "npm run migrate && npm run seed && npm run build"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

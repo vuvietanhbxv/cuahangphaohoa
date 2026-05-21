@@ -1,5 +1,7 @@
 import "dotenv/config";
 import path from "node:path";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -7,6 +9,9 @@ import rateLimit from "@fastify/rate-limit";
 import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FRONTEND_DIST = path.resolve(__dirname, "../../frontend/dist");
 
 import { prisma } from "./lib/prisma.js";
 import authRoutes from "./routes/auth.routes.js";
@@ -46,7 +51,7 @@ await app.register(multipart, {
 await app.register(fastifyStatic, {
   root: path.resolve(process.cwd(), "uploads"),
   prefix: "/uploads/",
-  decorateReply: false,
+  // decorateReply defaults to true — adds reply.sendFile() (needed for SPA fallback below)
 });
 
 app.decorate("prisma", prisma);
@@ -84,6 +89,31 @@ await app.register(adminCmsRoutes, { prefix: "/api/v1/admin" });
 await app.register(siteRoutes, { prefix: "/api/v1/site" });
 await app.register(storesRoutes, { prefix: "/api/v1/stores" });
 await app.register(adminStoresRoutes, { prefix: "/api/v1/admin" });
+
+/* ── Serve frontend/dist in production (single-server deploy) ─────── */
+if (fs.existsSync(FRONTEND_DIST)) {
+  // Serve static assets (JS, CSS, images, etc.)
+  await app.register(fastifyStatic, {
+    root: FRONTEND_DIST,
+    prefix: "/",
+    decorateReply: false,
+    wildcard: false,            // don't swallow all routes — only serve real files
+  });
+
+  // SPA fallback: any non-API, non-upload, non-file request → index.html
+  app.setNotFoundHandler((request, reply) => {
+    // If the request was for an API route, return proper 404 JSON
+    if (request.url.startsWith("/api/") || request.url.startsWith("/uploads/")) {
+      return reply.code(404).send({ error: "Not found" });
+    }
+    // Otherwise serve index.html for client-side routing
+    return reply.sendFile("index.html", FRONTEND_DIST);
+  });
+
+  app.log.info(`Serving frontend from ${FRONTEND_DIST}`);
+} else {
+  app.log.warn(`Frontend dist not found at ${FRONTEND_DIST} — run "npm run build" in frontend first`);
+}
 
 const port = Number(process.env.PORT || 4000);
 const host = process.env.HOST || "0.0.0.0";
